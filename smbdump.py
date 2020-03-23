@@ -42,9 +42,9 @@ def main():
         already_visited     =   []
         while(pending_to_visit != []):
             current_visit   =   pending_to_visit.pop(0)
-            print('Exploring '+current_visit)
+            #print('Exploring '+current_visit)
             results         =   smbclient_ls(current_visit,user)
-            print(str(results))
+            #print(str(results))
             for current_object_found in results:
                 current_object_found_type   =   current_object_found[0]
                 current_object_name         =   current_object_found[1]
