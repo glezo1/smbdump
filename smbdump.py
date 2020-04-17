@@ -6,7 +6,7 @@ import subprocess
 try:    import argparse
 except: print('argparse required, run: pip install argparse');    sys.exit(1)
 
-version    =    "0.2"
+version    =    "0.3"
 
 
 #---------------------------------------------------------------------------    
@@ -17,6 +17,7 @@ def main():
     argument_parser.add_argument('-v','--version'             ,action='store_true',default=False                 ,dest='version'   ,required=False  )
     argument_parser.add_argument('-d','--debug'               ,action='store_true',default=False                 ,dest='debug'     ,required=False  )
     argument_parser.add_argument('-t','--target'              ,action='store'     ,default=None                  ,dest='target'    ,required=True   )
+    argument_parser.add_argument('-e','--exclude-dir'         ,action='store'     ,default=None                  ,dest='exclude'   ,required=False  )
     argument_parser.add_argument('-U','--user'                ,action='store'     ,default=None                  ,dest='user'      ,required=False  )
     argument_parser.add_argument('-f','--destination-folder'  ,action='store'     ,default=None                  ,dest='folder'    ,required=False  )
     
@@ -25,8 +26,17 @@ def main():
     option_version              =   argument_parser_result.version
     debug                       =   argument_parser_result.debug
     target                      =   argument_parser_result.target
+    exclude                     =   argument_parser_result.exclude
     user                        =   argument_parser_result.user
     destination_folder          =   argument_parser_result.folder
+
+    if(not target.startswith('//')):
+        target              =   '//'+target
+    if(destination_folder.endswith('/')):
+        destination_folder  =   destination_folder[0:-1]
+    if(exclude!=None):
+        exclude =   exclude.split(',')
+        exclude =   [x.strip() for x in exclude]
 
     if(option_version):
         print(version)
@@ -47,24 +57,26 @@ def main():
             current_visit   =   pending_to_visit.pop(0)
             if(debug):
                 print('#Exploring '+current_visit)
-            results         =   smbclient_ls(current_visit,user)
-            for current_object_found in results:
-                current_object_found_type   =   current_object_found[0]
-                current_object_name         =   current_object_found[1]
-                whole_smb_path              =   current_visit+'/'+current_object_name
-                whole_local_path            =   None
-                if(destination_folder!=None):
-                    aux_tokens                  =   whole_smb_path.strip('/').split('/')
-                    whole_local_path            =   local_root_tree+'/'+'/'.join(aux_tokens[1:])
-                already_visited.append((current_object_found_type,whole_smb_path))
-                if(current_object_found_type=='D'):
-                    pending_to_visit.append(whole_smb_path)
+            current_visit_folder    =   current_visit[len(target+'/'):]
+            if(current_visit_folder not in exclude):
+                results         =   smbclient_ls(current_visit,user)
+                for current_object_found in results:
+                    current_object_found_type   =   current_object_found[0]
+                    current_object_name         =   current_object_found[1]
+                    whole_smb_path              =   current_visit+'/'+current_object_name
+                    whole_local_path            =   None
                     if(destination_folder!=None):
-                        create_folder_if_not_exists(whole_local_path)
-                elif(destination_folder!=None):
-                    aux_tokens                  =   whole_local_path.split('/')
-                    whole_local_path_directory  =   '/'.join(aux_tokens[0:-1])
-                    smbget(whole_smb_path, whole_local_path_directory,user,debug)
+                        aux_tokens                  =   whole_smb_path.strip('/').split('/')
+                        whole_local_path            =   local_root_tree+'/'+'/'.join(aux_tokens[1:])
+                    already_visited.append((current_object_found_type,whole_smb_path))
+                    if(current_object_found_type=='D'):
+                        pending_to_visit.append(whole_smb_path)
+                        if(destination_folder!=None):
+                            create_folder_if_not_exists(whole_local_path)
+                    elif(destination_folder!=None):
+                        aux_tokens                  =   whole_local_path.split('/')
+                        whole_local_path_directory  =   '/'.join(aux_tokens[0:-1])
+                        smbget(whole_smb_path, whole_local_path_directory,user,debug)
         already_visited.sort(key=lambda x:x[1])
         for i in already_visited:
             already_visited_type    =   i[0]
@@ -74,9 +86,10 @@ def main():
         print('#DONE')
 #---------------------------------------------------------------------------    
 def print_usage():
-    result    =    "smbdump.py -t|--target <ip_or_hostname> [-f|--destination-folder <folder>] [-U|--user 'user%passowrd'] [-h|--help] [-v|--version] [-d|--debug]"
+    result    =    "smbdump.py"
     result    +=    "-t|--target             :  specify target (//hostname or //ip)"
     result    +=    "-f|--destination-folder :  Specify absolute folder path to be dumped in, if any"
+    result    +=    "-e|--exclude-dir        :  Specify smb directories to be excluded from dump, comma separated (hence, cannot contain comma!)"
     result    +=    "-U|--user               :  Optional. Specify user%password"
     result    +=    "-h|--help               :  Prints this help"
     result    +=    "-v|--version            :  Prints version"
@@ -143,6 +156,12 @@ def smbclient_ls(smb_target,user=None):
 def smbget(smb_target,local_absolute_containing_folder,user=None,debug=False):
     #if the local file exists, it overwrites it.
     arguments           =   ['smbget','"smb:'+smb_target+'"']
+    if(user!=None):
+        arguments.append('-U')
+        arguments.append('"'+user+'"')
+    else:
+        arguments.append('-U')
+        arguments.append('"%"')
     filename            =   smb_target.split('/')[-1]
     if(user!=None):
         arguments.append("-U")
@@ -157,7 +176,8 @@ def smbget(smb_target,local_absolute_containing_folder,user=None,debug=False):
     try:
         subprocess.check_output(' '.join(arguments),stderr=subprocess.STDOUT,shell=True)
     except subprocess.CalledProcessError as e:
-        print('#'+e.output.decode('utf-8'))
+        #print('#'+e.output.decode('utf-8'))
+        print('#Couldnt download file '+smb_target)
         pass
 #---------------------------------------------------------------------------    
 def create_folder_if_not_exists(absolute_path):
